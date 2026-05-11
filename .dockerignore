@@ -1,0 +1,9 @@
+node_modules/
+frontend/dist/
+api/__pycache__/
+.env
+.env.local
+.git/
+.github/
+.vercel/
+.vscode/
