@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea } from 'recharts';
 import axios from 'axios';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 const TrendChart = ({ stationName }) => {
   const [data, setData] = useState([]);
@@ -13,9 +15,8 @@ const TrendChart = ({ stationName }) => {
     const fetchTrend = async () => {
       setLoading(true);
       try {
-        const response = await axios.get(`http://127.0.0.1:8000/api/trend/${encodeURIComponent(stationName)}`);
+        const response = await axios.get(`${API_BASE_URL}/api/trend/${encodeURIComponent(stationName)}`);
         if (response.data.status === 'success') {
-          // Format dates for display
           const formattedData = response.data.data.map(d => {
             const dateObj = new Date(d.Date);
             return {
@@ -35,78 +36,101 @@ const TrendChart = ({ stationName }) => {
     fetchTrend();
   }, [stationName]);
 
-  if (loading) {
-    return <div style={{ height: 350, display: 'flex', justifyContent: 'center', alignItems: 'center', color: '#94a3b8' }}>Loading trend data...</div>;
-  }
-
-  if (data.length === 0) {
-    return <div style={{ height: 350, display: 'flex', justifyContent: 'center', alignItems: 'center', color: '#94a3b8' }}>No trend data available.</div>;
-  }
-
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
       return (
-        <div style={{ background: '#1e293b', border: '1px solid #334155', padding: '10px', borderRadius: '8px', color: '#f8fafc' }}>
-          <p style={{ margin: '0 0 5px 0', fontWeight: 'bold' }}>{payload[0].payload.displayDate}</p>
-          <p style={{ margin: 0, color: chartType === 'AQI' ? '#3b82f6' : '#f97316' }}>
-            {chartType}: {payload[0].value} {chartType === 'Temperature' ? '°C' : ''}
-          </p>
+        <div className="glass-card" style={{ padding: '12px', border: '1px solid rgba(255,255,255,0.1)', marginBottom: 0 }}>
+          <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8', fontWeight: 700, marginBottom: '8px', textTransform: 'uppercase' }}>{label}</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: payload[0].color }}></div>
+            <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#f8fafc' }}>
+              {chartType}: {payload[0].value}{chartType === 'Temperature' ? '°C' : ''}
+            </span>
+          </div>
         </div>
       );
     }
     return null;
   };
 
+  const chartColor = chartType === 'AQI' ? '#38bdf8' : '#fbbf24';
+
   return (
-    <div className="glass-card">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h3 className="premium-subtitle" style={{ margin: 0, color: '#f8fafc', fontSize: '1.1rem' }}>Historical Trends</h3>
-        <select 
-          value={chartType} 
-          onChange={(e) => setChartType(e.target.value)}
-          style={{
-            background: 'rgba(15, 23, 42, 0.8)',
-            color: 'white',
-            border: '1px solid rgba(255,255,255,0.1)',
-            padding: '4px 10px',
-            borderRadius: '6px',
-            fontFamily: 'Outfit',
-            cursor: 'pointer'
-          }}
-        >
-          <option value="AQI">AQI</option>
-          <option value="Temperature">Temperature</option>
-        </select>
+    <div style={{ width: '100%' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+        <div style={{ display: 'flex', gap: '1rem' }}>
+          {['AQI', 'Temperature'].map(type => (
+            <button 
+              key={type}
+              onClick={() => setChartType(type)}
+              style={{
+                background: chartType === type ? 'rgba(56, 189, 248, 0.1)' : 'transparent',
+                color: chartType === type ? '#38bdf8' : '#64748b',
+                border: `1px solid ${chartType === type ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255,255,255,0.05)'}`,
+                padding: '6px 16px',
+                borderRadius: '8px',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em'
+              }}
+            >
+              {type}
+            </button>
+          ))}
+        </div>
       </div>
       
-      <div style={{ height: 350 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-            <XAxis dataKey="displayDate" stroke="#94a3b8" tick={{fontSize: 12}} tickLine={false} axisLine={false} />
-            <YAxis stroke="#94a3b8" tick={{fontSize: 12}} tickLine={false} axisLine={false} />
-            <Tooltip content={<CustomTooltip />} />
-            
-            {chartType === 'AQI' && (
-              <>
-                <ReferenceArea y1={0} y2={50} fill="#22c55e" fillOpacity={0.05} />
-                <ReferenceArea y1={50} y2={100} fill="#eab308" fillOpacity={0.05} />
-                <ReferenceArea y1={100} y2={150} fill="#f97316" fillOpacity={0.05} />
-                <ReferenceArea y1={150} y2={200} fill="#ef4444" fillOpacity={0.05} />
-                <ReferenceArea y1={200} y2={300} fill="#a855f7" fillOpacity={0.05} />
-              </>
-            )}
-
-            <Line 
-              type="monotone" 
-              dataKey={chartType} 
-              stroke={chartType === 'AQI' ? "#3b82f6" : "#f97316"} 
-              strokeWidth={3} 
-              dot={{ r: 4, fill: chartType === 'AQI' ? "#3b82f6" : "#f97316", stroke: '#0f172a', strokeWidth: 2 }} 
-              activeDot={{ r: 6 }} 
-            />
-          </LineChart>
-        </ResponsiveContainer>
+      <div style={{ height: 320 }}>
+        {loading ? (
+          <div style={{ height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', color: '#94a3b8', fontSize: '0.9rem' }}>
+            Synchronizing historical data...
+          </div>
+        ) : data.length === 0 ? (
+          <div style={{ height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', color: '#94a3b8', fontSize: '0.9rem' }}>
+            No historical records found for this station.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <defs>
+                <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={chartColor} stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor={chartColor} stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
+              <XAxis 
+                dataKey="displayDate" 
+                stroke="#64748b" 
+                fontSize={10} 
+                fontWeight={600}
+                tickLine={false} 
+                axisLine={false}
+                dy={10}
+              />
+              <YAxis 
+                stroke="#64748b" 
+                fontSize={10} 
+                fontWeight={600}
+                tickLine={false} 
+                axisLine={false} 
+              />
+              <Tooltip content={<CustomTooltip />} />
+              <Area 
+                type="monotone" 
+                dataKey={chartType} 
+                stroke={chartColor} 
+                strokeWidth={3} 
+                fillOpacity={1} 
+                fill="url(#colorValue)" 
+                animationDuration={1500}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   );

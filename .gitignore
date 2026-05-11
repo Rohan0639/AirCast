@@ -39,3 +39,12 @@ ENV/
 performance_test_report.csv
 data/hyderabad_live_weather.csv
 plots/*.png
+
+# Node
+node_modules/
+dist/
+
+# Vercel
+.vercel/
+.vercel
+.env*.local

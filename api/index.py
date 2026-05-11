@@ -1,11 +1,12 @@
 import os
 import joblib
-import pandas as pd
+import csv
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
+import numpy as np
 
 # Import underlying functions
 from fetch_live_data import get_live_data, STATION_MAP
@@ -24,11 +25,12 @@ app.add_middleware(
 # ---------------------------------------------------------
 # CONSTANTS & CACHED DATA
 # ---------------------------------------------------------
-MODEL_PATH = 'models/trained_model.pkl'
-STATION_MODELS_DIR = 'models/station_models'
-WEATHER_CSV_PATH = 'data/hyderabad_live_weather.csv'
-LIVE_AQI_CSV = 'data/live_aqi_dataset.csv'
-HISTORICAL_CSV = 'data/hyderabad_air_quality_10y_combined_fixed.csv'
+BASE_DIR = os.path.dirname(__file__)
+MODEL_PATH = os.path.join(BASE_DIR, 'models', 'trained_model.pkl')
+STATION_MODELS_DIR = os.path.join(BASE_DIR, 'models', 'station_models')
+WEATHER_CSV_PATH = os.path.join(BASE_DIR, 'data', 'hyderabad_live_weather.csv')
+LIVE_AQI_CSV = os.path.join(BASE_DIR, 'data', 'live_aqi_dataset.csv')
+HISTORICAL_CSV = os.path.join(BASE_DIR, 'data', 'hyderabad_air_quality_10y_combined_fixed.csv')
 
 # Simple in-memory cache
 cache = {
@@ -58,8 +60,23 @@ def load_station_model(station_name):
     
     return cache['station_models'][station_name] or load_global_model()
 
+def load_csv_data(file_path):
+    """
+    Helper to read CSV into a list of dictionaries.
+    """
+    if not os.path.exists(file_path):
+        return []
+    try:
+        with open(file_path, mode='r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            return list(reader)
+    except Exception as e:
+        print(f"Error reading CSV {file_path}: {e}")
+        return []
+
 def get_aqi_category(aqi):
     if aqi is None: return "Unknown"
+    aqi = float(aqi)
     if aqi <= 50: return "Good"
     if aqi <= 100: return "Moderate"
     if aqi <= 150: return "Unhealthy for Sensitive Groups"
@@ -68,9 +85,9 @@ def get_aqi_category(aqi):
     return "Hazardous"
 
 def calculate_dominant_pollutant(live_record):
-    pollutants = {k: live_record.get(k, 0) for k in ['PM2.5', 'PM10', 'NO2', 'SO2', 'O3', 'CO']}
+    pollutants = {k: float(live_record.get(k, 0) or 0) for k in ['PM2.5', 'PM10', 'NO2', 'SO2', 'O3', 'CO']}
     if not pollutants: return "Unknown"
-    return max(pollutants.keys(), key=lambda k: pollutants[k] if pollutants[k] is not None else 0)
+    return max(pollutants.keys(), key=lambda k: pollutants[k])
 
 # ---------------------------------------------------------
 # API ROUTES
@@ -83,7 +100,7 @@ def get_dashboard_data():
     """
     global_payload = load_global_model()
     if not global_payload:
-        raise HTTPException(status_code=500, detail="Global model not found. Run training first.")
+        raise HTTPException(status_code=500, detail="Global model not found.")
 
     features = global_payload.get('features', [])
     station_mapping = global_payload.get('station_mapping', {})
@@ -91,15 +108,14 @@ def get_dashboard_data():
     
     all_station_details = {}
     
-    try:
-        if os.path.exists(LIVE_AQI_CSV):
-            df_all = pd.read_csv(LIVE_AQI_CSV, parse_dates=['Date'])
-            df_all = df_all.drop_duplicates(subset=['Date', 'Station'], keep='last')
-        else:
-            df_all = pd.DataFrame()
-    except Exception as e:
-        print(f"Error loading live AQI CSV: {e}")
-        df_all = pd.DataFrame()
+    # Load all live data records
+    all_records = load_csv_data(LIVE_AQI_CSV)
+    # Deduplicate in memory (keep last for each Date/Station)
+    records_map = {}
+    for r in all_records:
+        key = (r.get('Date'), r.get('Station'))
+        records_map[key] = r
+    deduped_records = list(records_map.values())
 
     for station_name in STATION_MAP.keys():
         try:
@@ -124,17 +140,18 @@ def get_dashboard_data():
                 aqi_yest = today_aqi
                 aqi_db_yest = today_aqi
                 
-                if not df_all.empty:
-                    today_str = datetime.now().strftime('%Y-%m-%d')
-                    df_station = df_all[
-                        (df_all['Station'] == station_name) & 
-                        (df_all['Date'].dt.strftime('%Y-%m-%d') < today_str)
-                    ].sort_values('Date')
-                    
-                    if len(df_station) >= 2:
-                        hist_vals = df_station.tail(2)['AQI'].tolist()
-                        aqi_yest = hist_vals[1]
-                        aqi_db_yest = hist_vals[0]
+                # Filter records for this station before today
+                today_str = datetime.now().strftime('%Y-%m-%d')
+                station_history = [
+                    r for r in deduped_records 
+                    if r.get('Station') == station_name and r.get('Date', '') < today_str
+                ]
+                # Sort by date
+                station_history.sort(key=lambda x: x.get('Date', ''))
+                
+                if len(station_history) >= 2:
+                    aqi_yest = float(station_history[-1].get('AQI', today_aqi))
+                    aqi_db_yest = float(station_history[-2].get('AQI', today_aqi))
 
                 rolling_3 = (today_aqi + aqi_yest + aqi_db_yest) / 3
 
@@ -143,10 +160,12 @@ def get_dashboard_data():
                 live_data['AQI_Rolling_3'] = rolling_3
                 live_data['Station_Code'] = name_to_code.get(station_name, 1)
                 
-                input_dict = {f: live_data.get(f, 0) for f in features}
-                df_input = pd.DataFrame([input_dict])
+                # Prepare input features as a list (for NumPy)
+                input_row = [float(live_data.get(f, 0)) for f in features]
+                input_array = np.array([input_row])
 
-                prediction = float(model.predict(df_input)[0])
+                # Use model to predict (works for both XGBoost and Scikit-Learn)
+                prediction = float(model.predict(input_array)[0])
                 
                 if 'station_name' in payload:
                     mae_map = {
@@ -186,41 +205,44 @@ def get_trend_data(station_name: str, days: int = 7):
     """
     Returns historical trend data for AQI and Temperature for a station.
     """
-    dfs = []
+    all_rows = []
     
-    if os.path.exists(HISTORICAL_CSV):
-        try:
-            dfs.append(pd.read_csv(HISTORICAL_CSV, parse_dates=['Date']))
-        except Exception:
-            pass
+    # Read files manually
+    all_rows.extend(load_csv_data(HISTORICAL_CSV))
+    all_rows.extend(load_csv_data(LIVE_AQI_CSV))
             
-    if os.path.exists(LIVE_AQI_CSV):
-        try:
-            dfs.append(pd.read_csv(LIVE_AQI_CSV, parse_dates=['Date']))
-        except Exception:
-            pass
-            
-    if not dfs:
+    if not all_rows:
         return {"status": "success", "data": []}
 
-    df = pd.concat(dfs, ignore_index=True)
-    df = df[df['Station'] == station_name].copy()
+    # Filter by station
+    station_rows = [r for r in all_rows if r.get('Station') == station_name]
     
-    if df.empty:
+    if not station_rows:
         return {"status": "success", "data": []}
 
-    df = df.sort_values('Date').drop_duplicates(subset=['Date'], keep='last')
-    df['AQI'] = pd.to_numeric(df['AQI'], errors='coerce')
-    df['Temperature'] = pd.to_numeric(df['Temperature'], errors='coerce')
-    df = df.dropna(subset=['Date', 'AQI'])
+    # Deduplicate and Sort
+    rows_map = {}
+    for r in station_rows:
+        date = r.get('Date')
+        if date:
+            rows_map[date] = r
     
-    df = df.tail(days).reset_index(drop=True)
+    sorted_dates = sorted(rows_map.keys())
+    final_rows = []
+    for d in sorted_dates:
+        r = rows_map[d]
+        try:
+            final_rows.append({
+                'Date': d,
+                'AQI': int(float(r.get('AQI', 0))),
+                'Temperature': float(r.get('Temperature', 0))
+            })
+        except:
+            continue
     
-    # Format for JSON
-    df['Date'] = df['Date'].dt.strftime('%Y-%m-%d')
-    
-    records = df[['Date', 'AQI', 'Temperature']].to_dict(orient='records')
-    return {"status": "success", "data": records}
+    # Get last N days
+    result = final_rows[-days:] if len(final_rows) > days else final_rows
+    return {"status": "success", "data": result}
 
 @app.get("/api/stations")
 def get_stations():
@@ -237,10 +259,9 @@ def get_stations():
         "Zoo Park SPCB": {"lat": 17.3507, "lon": 78.4432}
     }
     
-    # Enrich with just names for those not in coords list
     all_stations = []
     for name in STATION_MAP.keys():
-        coord = stations_coords.get(name, {"lat": 17.4, "lon": 78.4}) # Default to center
+        coord = stations_coords.get(name, {"lat": 17.4, "lon": 78.4})
         all_stations.append({
             "name": name,
             "display_name": name.replace(' SPCB', '').replace(',', '').strip(),
@@ -252,4 +273,5 @@ def get_stations():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("index:app", host="0.0.0.0", port=port, reload=True)

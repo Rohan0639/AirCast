@@ -1,0 +1,9 @@
+frontend/
+.git/
+.conda/
+.vscode/
+.github/
+README.md
+sync.bat
+node_modules/
+dist/
