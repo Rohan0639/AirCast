@@ -1,4 +1,4 @@
-# Hyderabad Air Quality Index (AQI) Prediction System
+# AirCast
 
 **🔴 Live Demo:** [https://aqi-prediction-ml-2.onrender.com/](https://aqi-prediction-ml-2.onrender.com/)
 
