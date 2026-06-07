@@ -1,15 +1,4 @@
 {
   "buildCommand": "cd frontend && npm install && npm run build",
-  "outputDirectory": "frontend/dist",
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/index.py"
-    }
-  ],
-  "functions": {
-    "api/*.py": {
-      "excludeFiles": "{frontend/**,Dockerfile,railway.json,render.yaml}"
-    }
-  }
+  "outputDirectory": "frontend/dist"
 }
