@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import numpy as np
+import xgboost as xgb
 
 # Import underlying functions
 from fetch_live_data import get_live_data, STATION_MAP
@@ -43,7 +44,11 @@ cache = {
 def load_global_model():
     if cache['global_model'] is None and os.path.exists(MODEL_PATH):
         try:
-            cache['global_model'] = joblib.load(MODEL_PATH)
+            payload = joblib.load(MODEL_PATH)
+            booster = xgb.Booster()
+            booster.load_model(bytearray(payload['model']))
+            payload['booster'] = booster
+            cache['global_model'] = payload
         except Exception as e:
             print(f"Error loading global model: {e}")
     return cache['global_model']
@@ -53,7 +58,11 @@ def load_station_model(station_name):
         station_file = os.path.join(STATION_MODELS_DIR, f"{station_name.lower().replace(' ', '_')}.pkl")
         if os.path.exists(station_file):
             try:
-                cache['station_models'][station_name] = joblib.load(station_file)
+                payload = joblib.load(station_file)
+                booster = xgb.Booster()
+                booster.load_model(bytearray(payload['model']))
+                payload['booster'] = booster
+                cache['station_models'][station_name] = payload
             except Exception as e:
                 print(f"Error loading station model {station_name}: {e}")
                 cache['station_models'][station_name] = None
@@ -166,8 +175,10 @@ def get_dashboard_data():
                 input_row = [float(live_data.get(f, 0)) for f in features]
                 input_array = np.array([input_row])
 
-                # Use model to predict (works for both XGBoost and Scikit-Learn)
-                prediction = float(model.predict(input_array)[0])
+                # Use native XGBoost booster to predict
+                dmatrix = xgb.DMatrix(input_array, feature_names=features)
+                booster = payload['booster']
+                prediction = float(booster.predict(dmatrix)[0])
                 
                 if 'station_name' in payload:
                     mae_map = {

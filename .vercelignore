@@ -1,7 +1,3 @@
-api/
-Dockerfile
-railway.json
-render.yaml
 .git/
 .conda/
 .vscode/

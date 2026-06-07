@@ -1,11 +1,9 @@
 numpy
-scikit-learn
 xgboost
 joblib
 requests
 python-dotenv
 fastapi
-uvicorn
-gunicorn
-python-multipart
 pydantic
+uvicorn
+python-multipart

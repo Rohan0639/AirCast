@@ -1,8 +1,0 @@
-services:
-  - type: web
-    name: aqi-prediction-system
-    env: docker
-    dockerfilePath: ./Dockerfile
-    envVars:
-      - key: WAQI_API_TOKEN
-        sync: false
